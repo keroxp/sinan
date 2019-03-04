@@ -1,0 +1,2 @@
+# sinan
+Shogi instruction server
