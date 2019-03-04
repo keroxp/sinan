@@ -1,0 +1,14 @@
+{
+  "name": "sinan",
+  "version": "0.1.0",
+  "main": "index.js",
+  "author": "keroxp <kerokerokerop@gmail.com>",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "debug": "^4.1.1",
+    "typescript": "^3.3.3333"
+  },
+  "devDependencies": {
+    "@types/node": "^11.10.4"
+  }
+}

@@ -1,0 +1,454 @@
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>将棋所：USIプロトコルとは</title>
+</head>
+<p><a href="https://web.archive.org/web/20170616170310/http://www.geocities.jp/shogidokoro/index.html">ホーム</a>＞USIプロトコルとは
+</p>
+<hr align="left" size="3" width="100%">
+<p>USI(Universal Shogi Interface)プロトコルとは、将棋GUIソフトと思考エンジンが通信をするために、Tord
+    Romstad氏によって考案された通信プロトコルです。USIの原案は、以下で読むことができます。</p>
+<p><a href="https://web.archive.org/web/20170616170310/http://www.glaurungchess.com/shogi/usi.html">The Universal Shogi
+    Interface, draft 1</a></p>
+<p>
+    このページの文章は、原案の直訳ではなく、説明の仕方を適度に変更しています。また、前置きの部分や、将棋所で未対応のコマンドについて説明を省略しています。一方、コマンドのやり取りの方法など、全体の流れについて原文では具体例が少なくてわかりにくいと思うので、その部分については説明を増やしています。わからないところがあったら、実際に将棋所でサンプルエンジンのLesserkaiを動かして、デバッグウィンドウのログを見ると参考になると思います。</p>
+<p>
+    将棋所の作成にあたり、原案のままでは不足している部分があったので、その点については新しいコマンドを追加しました。そのため、このページで解説している内容を、USIの正式な定義ということにします。（何をもってUSIの正式な定義とするかはっきりしていないのですが、ここ以外でUSIについて議論している人もいないと思うので、このページの内容が正式版であるとして構わないと思います。原案を考案したTord氏も、その後、コンピュータ将棋に関しては何もやっていないようですし。）既に実装済みのコマンド部分を変更することはありませんので、エンジン作者は安心してUSIに対応して下さい。</p>
+<hr align="left" size="3" width="100%">
+<h4>USIプロトコル全般における注意</h4>
+<ul>
+    <li>GUIとエンジン間の通信のやり取りは、標準入出力を通してテキストのコマンドで行われます。</li>
+    <li>エンジンは常に（たとえ思考中であっても）コマンドの受信ができる必要があります。</li>
+    <li>コマンドの送受信をするとき、その文字は半角英数字を使用します。</li>
+    <li>コマンドとオプションなどの間は半角スペースで区切って下さい。</li>
+    <li>エンジンがコマンドの行を送信する場合、最後に必ず改行コード（\n）を追加する必要があります。改行コードがないと、GUIは行の終わりを認識できません。</li>
+    <li>
+        USIコマンドでは半角英数字しか使えないため、そのままではエンジン設定ダイアログでのオプション名などを日本語で表示できません。そのため、日本語変換用ファイルを使用することによって日本語表示ができるようにしました。詳しくは「<a
+            href="https://web.archive.org/web/20170616170310/http://www.geocities.jp/shogidokoro/translate.html">エンジン設定ダイアログで日本語を表示する方法</a>」を見て下さい。
+    </li>
+</ul>
+<h4>
+    <hr align="left" size="3" width="100%">
+</h4>
+<h4>SFENによる盤面と指し手の表記について</h4>
+<p>USIで使用される、SFEN(Shogi Forsyth-Edwards
+    Notation)表記法による局面と指し手の表記を解説します。この表記方法は、後述するpositionコマンドやbestmoveコマンド、さらにinfoコマンドなどで使用されます。</p>
+<p>駒の種類は、それぞれ１文字のアルファベットで表され、先手の駒は大文字、後手の駒は小文字になります。</p>
+<p>先手の玉：K、後手の玉：k （Kingの頭文字）<br>
+    先手の飛車：R、後手の飛車：r （Rookの頭文字）<br>
+    先手の角：B、後手の角：b （Bishopの頭文字）<br>
+    先手の金：G、後手の金：g （Goldの頭文字）<br>
+    先手の銀：S、後手の銀：s （Silverの頭文字）<br>
+    先手の桂馬：N、後手の桂馬：n （kNightより）<br>
+    先手の香車：L、後手の香車：l （Lanceの頭文字）<br>
+    先手の歩：P、後手の歩：p （Pawnの頭文字）</p>
+<p>駒が成った状態を表記するには、駒の文字の前に+をつけます。先手のと金は+Pとなります。</p>
+<p>盤面を表記するとき、１段目の左側（９筋側）から駒の種類を書いていきます。空白の升は、空白が続く個数の数字を書きます。<br>
+    平手初期局面の場合、１段目は、左から後手の駒が香桂銀金玉金銀桂香と並んでいるので、lnsgkgsnlとなります。２段目は、空白が１升、後手の飛車、空白が５升、後手の角、空白が１升というように並んでいるので、1r5b1となります。<br>
+    各段がそのように表記され、１段目から９段目まで、それぞれの段の表記を/（半角スラッシュ）でつなげて書くと、盤面の表記になります。平手初期局面であれば</p>
+<p>lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL</p>
+<p>ということになります。<br>
+    しかし局面表記にはこれだけでは不十分で、次の手番と、持ち駒についても表記する必要があります。<br>
+    次の手番については、先手番ならb、後手番ならwと表記します。（Black、Whiteの頭文字）</p>
+<p>
+    持ち駒については、先手後手のそれぞれの持ち駒の種類と、その枚数を表記します。枚数は、２枚以上であれば、駒の種類の前にその数字を表記します。先手側が銀１枚歩２枚、後手側が角１枚歩３枚であれば、S2Pb3pと表記されます。どちらも持ち駒がないときは-（半角ハイフン）を表記します。</p>
+<p>
+    さらにSFENの原案によると、次の手が何手目かという数字も表記する必要があります。ただし、任意局面から開始する場合など、次の手が何手目かという情報に意味がないので、これが必要なものかどうかよくわかりません。将棋所の場合、この数字は必ず１にしています。<br>
+    以上によりSFENによる任意局面の表記方法が定義されます。香落ち初期局面であれば、</p>
+<p>lnsgkgsn1/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1</p>
+<p>というように表記されます。</p>
+<p>
+    次に、指し手の表記について解説します。筋に関しては１から９までの数字で表記され、段に関してはaからiまでのアルファベット（１段目がa、２段目がb、・・・、９段目がi）というように表記されます。位置の表記は、この２つを組み合わせます。５一なら5a、１九なら1iとなります。<br>
+    そして、指し手に関しては、駒の移動元の位置と移動先の位置を並べて書きます。７七の駒が７六に移動したのであれば、7g7fと表記します。（駒の種類を表記する必要はありません。）<br>
+    駒が成るときは、最後に+を追加します。８八の駒が２二に移動して成るなら8h2b+と表記します。<br>
+    持ち駒を打つときは、最初に駒の種類を大文字で書き、それに*を追加し、さらに打った場所を追加します。金を５二に打つ場合はG*5bとなります</p>
+<hr align="left" size="3" width="100%">
+<h4>GUIからエンジンに送られるコマンド</h4>
+<p>usi</p>
+<p style="margin-left: 40px;">
+    GUIがエンジンを起動した時に最初に送るコマンドです。エンジンは、このコマンドを受信したらすぐにidコマンドを返し、必要に応じてoptionコマンドを返します。そして最後にusiokコマンドを返す必要があります。</p>
+<p>isready</p>
+<p style="margin-left: 40px;">対局開始前に送ります。エンジンは対局準備ができたらreadyokを返すことになります。</p>
+<p>setoption name &lt;id&gt; [value &lt;x&gt;]</p>
+<p style="margin-left: 40px;">エンジンに対して値を設定する時に送ります。<br>
+    &lt;id&gt;で指定する名前は、エンジンが起動時にoptionコマンドで返した名前になります。value &lt;x&gt;で指定する部分は、文字列であればその文字列を入れ、チェックボックスのブーリアン値であればtrueまたはfalseになります。<br>
+    将棋所2.8.0からは、エンジン設定ダイアログでOKを押したときの設定内容を将棋所の側で保存して、対局開始時に同じ内容をsetoptionで送るようになりました。そのため、エンジンがsetoptionの内容を初期設定ファイルに保存する機能は不要になりました。<br>
+    また、USI_PonderとUSI_Hashに関しては、それぞれ対局ダイアログの「相手の手番中に先読み」と「ハッシュ」に対応しており、将棋所で対局を開始するときに必ず送るので、エンジンがoptionコマンドで指定する必要はありません。<br>
+    以下に具体例を示します。</p>
+<p style="margin-left: 40px;">// オプション名USI_Ponderの値をtrueに設定<br>
+    setoption name USI_Ponder value true<br>
+    // オプション名USI_Hashの値を32に設定<br>
+    setoption name USI_Hash value 32</p>
+<p>usinewgame</p>
+<p style="margin-left: 40px;">対局開始時に送ります。これで対局開始になります。</p>
+<p>position [sfen &lt;sfenstring&gt; | startpos ] moves &lt;move1&gt; ... &lt;movei&gt;</p>
+<p style="margin-left: 40px;">
+    思考開始局面をエンジンに知らせるためのコマンドです。エンジンに思考を開始させる場合、positionコマンドで思考開始局面を送り、それに続けてgoコマンドを送って思考開始を命令することになります。<br>
+    positionコマンドの書式として、まず初期局面を記述し、それに続けて初期局面からの全ての手を記述します。<br>
+    初期局面の部分については、平手初期局面であれば単にstartposと書き、そうでなければsfenに続けてSFENの書式に基づいて記述します。<br>
+    それに続く指し手の部分は、初期局面に続けてmovesを書き、さらに初手からの全ての手を並べて書きます。<br>
+    例えば、平手初期局面から▲７六歩、△３四歩、▲２六歩と進んだ局面であれば、</p>
+<p style="margin-left: 40px;">position startpos moves 7g7f 3c3d 2g2f</p>
+<p style="margin-left: 40px;">となります。２枚落ち初期局面から△６二玉、▲７六歩、△３二銀と進んだ局面であれば、</p>
+<p style="margin-left: 40px;">position sfen lnsgkgsnl/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1 moves 5a6b 7g7f
+    3a3b</p>
+<p style="margin-left: 40px;">
+    となります。このように、毎回毎回、初期局面からの全ての指し手を書く必要があるので、冗長に思われるかもしれません。しかし、この方式を採用することにより、エンジンは先読み機能への対応が簡単にできるようになります。また、この方式に対応した時点で、待ったの機能が自動的に実装済みになります。</p>
+<p>go</p>
+<p style="margin-left: 40px;">思考開始の合図です。エンジンはこれを受信すると思考を開始します。<br>
+    自分の手番の時に思考を開始することを通常思考と呼びます。相手の手番の時に思考を開始することを先読み思考と呼びます。後述しますが、go
+    ponderによって思考を開始するときは先読み思考、ponderがついていないgoコマンドで思考を開始するときは通常思考となります。<br>
+    以下に、goコマンドのオプションについて解説します。</p>
+<p style="margin-left: 40px;">ponder</p>
+<p style="margin-left: 80px;">これを使うときは、必ずgo ponderというように、goのすぐあとにponderを書くことになります。<br>
+    ponderという言葉は、辞書では「熟考」と訳されていますが、思考ゲームにおいては、相手の手番中に次の手を考える「先読み」を意味します。<br>
+    go ponderは、先読みを開始する合図となります。（先読みを開始すべき局面は、この前にpositionコマンドによって送られてきています。）<br>
+    エンジンは、go
+    ponderによって思考を開始する場合、GUI側から次のコマンド（stopまたはponderhit）が送られてくる前にbestmoveで指し手を返してはいけません。（たとえ、思考開始の時点で詰んでいるような場合であったとしてもです。）相手が手を指すと、それによってstopまたはponderhitが送られて来るので、それを待ってからbestmoveで指し手を返すことになります。（この辺の流れついては、後述する「<a
+            href="https://web.archive.org/web/20170616170310/http://www.geocities.jp/shogidokoro/usi.html#GameExample">対局における通信の具体例</a>」を読んで下さい。）
+</p>
+<p style="margin-left: 40px;">btime, wtime &lt;x&gt;</p>
+<p style="margin-left: 80px;">先手と後手の残り時間を表示します。（btimeは先手の残り時間、wtimeは後手の残り時間。）単位はミリ秒です。<br>
+    なお、byoyomiまたはbinc/wincで0より大きい値が設定されている場合、次の手には、残り時間とそれらを合計した時間まで考えることができます。詳しくは下のbyoyomiとbinc/wincの項目を参照して下さい。</p>
+<p style="margin-left: 40px;">byoyomi &lt;x&gt;</p>
+<p style="margin-left: 80px;">
+    これはUSIの原案にはありませんが、将棋特有の秒読みに対応するために追加しました。単位はミリ秒です。先手と後手で秒読みの時間が違うということは想定していないので、どちらにも共通の値となります。<br>
+    btime, wtime, byoyomiを使って、残り時間と秒読み時間を指定することができます。先手の残り時間が６０秒、後手の残り時間が５０秒、秒読みが１０秒であれば、</p>
+<p style="margin-left: 80px;">go btime 60000 wtime 50000 byoyomi 10000</p>
+<p style="margin-left: 80px;">というようになります。この場合、次が先手番だとして、先手は次の手に残り時間６０秒と秒読み１０秒を合計した７０秒まで考えることができます。</p>
+<p style="margin-left: 40px;">binc, winc &lt;x&gt;</p>
+<p style="margin-left: 80px;">
+    フィッシャークロックルールで使われる、１手ごとの加算時間を表示します。単位はミリ秒です。このルールでは自分の手番が来るたびに持ち時間が加算され、先手はbinc、後手はwincで示される時間が加算されることになります。その加算時間内に手を指すと、余った時間は次の手の持ち時間に追加されます。<br>
+    持ち時間なしで１手ごとの加算時間が１０秒、双方とも１０手ずつ指して先手の消費時間が６０秒、後手の消費時間が５０秒だとします。この場合、加算時間の総計は双方とも１１０秒になっているので、先手の残り時間は５０秒、後手の残り時間は６０秒となります。将棋所は次の指し手の思考開始コマンドを次のように送ります。<br>
+    <br>
+    go btime 40000 wtime 50000 binc 10000 winc 10000</p>
+<p style="margin-left: 80px;">
+    つまり、「先手の残り時間４０秒、後手の残り時間５０秒、先手の加算１０秒、後手の加算１０秒」の形で送ります。するとエンジン側では、次の手で先手は残り時間と加算を合わせて最大５０秒考えることができ、次の手に進んだあとも１手につき１０秒加算されることがわかります。<br>
+    なお、秒読みと加算は、両方同時に使用することはありません。そのため、秒読みがあるときはbinc/wincは送らず、加算があるときはbyoyomiは送りません。ただし秒読みと加算が両方とも0ならbyoyomi 0を送ります。</p>
+<p style="margin-left: 40px;">infinite</p>
+<p style="margin-left: 80px;">時間無制限で思考させる場合に使います。（将棋所では、検討機能で制限時間を無制限にした時にgo inifiniteを送ります。）<br>
+    エンジンはgo infiniteで思考を開始した場合、次にstopが送られてくる前にbestmoveを返してはいけません。stopが送られてきた時にbestmoveを返すことになります。</p>
+<p style="margin-left: 40px;">mate [&lt;x&gt; | infinite]</p>
+<p style="margin-left: 80px;">詰将棋解答を開始する時に使います。この時、制限時間を指定することができます。単位はミリ秒です。制限時間１分で解かせるのであれば、</p>
+<p style="margin-left: 80px;">go mate 60000</p>
+<p style="margin-left: 80px;">となります。また、時間無制限で解かせるのであれば、次のようにinfiniteを使います。</p>
+<p style="margin-left: 80px;">go mate infinite</p>
+<p style="margin-left: 80px;">エンジンは、go mateによって思考を開始した場合、checkmateコマンドを返すことになります。詰将棋解答に対応していないならcheckmate
+    notimplementedを返すようにして下さい。</p>
+<p style="margin-left: 80px;">なお、USIの原案では、go mateのパラメータとして手数を指定することになっていて、go mate
+    9と指定すれば、９手以内に詰みがあるかどうか探索することになっています。しかし、チェスと違って将棋での詰手数というのは非常に長くなることがあり、詰将棋を解かせる時に「何手以内に詰みがあるかどうか」という使い方はほとんどしないので、手数の代わりに制限時間を指定するように変更しました。</p>
+<p>stop</p>
+<p style="margin-left: 40px;">
+    エンジンに対し思考停止を命令するコマンドです。エンジンはこれを受信したら、できるだけすぐ思考を中断し、bestmoveで指し手を返す必要があります。（現時点で最善と考えている手を返すようにして下さい。）<br>
+    stopは通常思考と先読み思考のいずれの場合にも送られる可能性があります。通常思考では、人間対エンジンでエンジンの思考中に「急」（すぐ指させる）ボタンを押した場合と、検討を中断した場合に送ります。先読み思考ではエンジンの予想手が外れた場合に送ります。
+</p>
+<p>ponderhit</p>
+<p style="margin-left: 40px;">
+    エンジンが先読み中、前回のbestmoveコマンドでエンジンが予想した通りの手を相手が指した時に送ります。エンジンはこれを受信すると、先読み思考から通常の思考に切り替わることになり、任意の時点でbestmoveで指し手を返すことができます。</p>
+<p>quit</p>
+<p style="margin-left: 40px;">アプリケーション終了を命令するコマンドです。エンジンはこれを受信したらすぐに終了する必要があります。</p>
+<p>gameover [ win | lose | draw ]</p>
+<p style="margin-left: 40px;">
+    gameoverというコマンドはUSIの原案にはありませんが、これがないと対局終了をエンジンに知らせることができないために追加しました。gameoverのあと、エンジンの結果に応じてwin, lose,
+    drawのいずれかのパラメータも一緒に送られます。<br>
+    エンジンはgameoverを受信したら対局状態を終了して、対局待ち状態になります。その後、isready及びusinewgameを受信すると次の対局開始ということになります。</p>
+<h4>
+    <hr align="left" size="3" width="100%">
+</h4>
+<h4>エンジンからGUIに送られるコマンド</h4>
+<p>id name &lt;program name&gt;<br>
+    id author &lt;program author&gt;</p>
+<p style="margin-left: 40px;">usiコマンドを受信した時に最初に送り返すコマンドです。この時、id nameでプログラム名を返し、id authorで作者名を返します。将棋所でエンジンを追加する場合、このid
+    nameで返した名前を登録するので、必ず送り返す必要があります。</p>
+<p>usiok</p>
+<p style="margin-left: 40px;">usiコマンドを受信した時に最後に送り返すコマンドです。将棋所ではこれを返さないエンジンはUSIエンジンと認識されず登録できないので、必ず送り返す必要があります。</p>
+<p>readyok</p>
+<p style="margin-left: 40px;">
+    isreadyコマンドを受信した時、対局準備ができたらreadyokを返して下さい。対局前に時間のかかる処理をする場合など、isreadyを受信してからreadyokを返す間にやるといいと思います。</p>
+<p>bestmove &lt;move1&gt; [ponder &lt;move2&gt;]</p>
+<p style="margin-left: 40px;">エンジンの指し手を返します。&lt;move1&gt;の部分にエンジンの指し手を記述します。<br>
+    単に指し手を返すのであれば、bestmoveのあとにエンジンの指し手だけを追加し、ponderは追加しないようにします。エンジンが7g7fと指し、その後の先読みをしないのであれば、</p>
+<p style="margin-left: 40px;">bestmove 7g7f</p>
+<p style="margin-left: 40px;">となります。<br>
+    指し手を返したあと、先読み機能を使いたいのであれば、自分の指し手のあと、ponder &lt;move2&gt;の部分に、エンジンが予想した相手の指し手を追加します。これがGUIに対する先読み要求になります。例えば、エンジンが8h2b+と指すとして、それに対する相手の指し手を3a2bと予想し、その局面からの先読みを要求するのであれば、
+</p>
+<p style="margin-left: 40px;">bestmove 8h2b+ ponder 3a2b</p>
+<p style="margin-left: 40px;">となります。この後、GUI側から、相手が3a2bと指した局面がpositionコマンドによって送られてきて、それに続けてgo
+    ponderが送られてくるので、その時点から先読みを開始します。</p>
+<p style="margin-left: 40px;">このように、USIプロトコルにおいて、エンジンの先読みは、</p>
+<p style="margin-left: 40px;">エンジン側からbestmove &lt;move1&gt; ponder &lt;move2&gt;による先読み要求<br>
+    ↓<br>
+    GUI側からpositionコマンドで先読み思考開始局面の送信<br>
+    ↓<br>
+    GUI側からgo ponderコマンドが送られ先読み開始</p>
+<p style="margin-left: 40px;">
+    という一連の流れに沿って行われます。この方式に従うことにより、先読みの実装が容易になります。また、エンジンの先読み時の予想手が将棋所の「予想手」の欄に表示され、先読み中の思考内容もinfoコマンドを使えば通常思考時と同様にGUIで表示できるようになります。</p>
+<p style="margin-left: 40px;">なお、先読みをする時に、予想手を一つではなく複数考えたいということがあるかもしれません。そのような場合は、USIの本来の使い方からは外れますが、bestmove &lt;move1&gt;
+    ponder &lt;move2&gt;ではなく、単にbestmove &lt;move1&gt;だけを返し、相手の手番中に勝手に先読みするようにして下さい。</p>
+<h4 style="margin-left: 40px;">エンジンの投了について</h4>
+<p style="margin-left: 40px;">USIの原案では、エンジンが投了する方法が用意されていません。しかし、エンジン側の判断で投了できないというのはどう考えてもおかしな話なので、投了する方法を追加しました。</p>
+<p style="margin-left: 40px;">bestmove resign</p>
+<p style="margin-left: 40px;">を送ることによって、GUIに投了を伝えることができます。GUIはこれを受信すると対局状態を終了し、gameoverコマンドをエンジンに送ります。<br>
+    また、エンジンは、相手の指し手によって詰まされてしまった場合は必ずbestmove resignを返すようにして下さい。</p>
+<h4 style="margin-left: 40px;">入玉勝ち宣言について</h4>
+<p style="margin-left: 40px;">入玉して勝ちと判断した時、エンジンは入玉勝ち宣言をすることができます。このための方法を追加しました。</p>
+<p style="margin-left: 40px;">bestmove win</p>
+<p style="margin-left: 40px;">を送ることによって、GUIに入玉勝ち宣言を伝えることができます。<br>
+    GUIはこれを受信すると、通信対局であれば、通信相手に%KACHIコマンドを送ります。人間対エンジン、またはエンジン対エンジンであれば、その宣言が正しいかどうか、GUIが判断して勝敗を決めます。<br>
+    入玉勝ち宣言が正しいかどうかは、<a
+            href="https://web.archive.org/web/20170616170310/http://www.computer-shogi.org/protocol/tcp_ip_1on1_11.html">CSAルール</a>での定義に基づくものとします。それ以外のルール（２４点法など）は使用しません。
+</p>
+<p>info</p>
+<p style="margin-left: 40px;">
+    エンジンは、goコマンドで思考を開始してからbestmoveコマンドで指し手を返すまでの間、infoコマンドによって思考中の情報を返すことができます。infoコマンドはいくつかのサブコマンドで構成されます。以下に、そのサブコマンドについて解説します。<br>
+    また、サブコマンドは１行にまとめて書くことができます。（ただし、pvとstringの同時使用は不可。）</p>
+<p style="margin-left: 40px;">depth &lt;x&gt;</p>
+<p style="margin-left: 80px;">現在思考中の手の（基本の）探索深さを返します。</p>
+<p style="margin-left: 40px;">seldepth &lt;x&gt;</p>
+<p style="margin-left: 80px;">
+    現在、選択的に読んでいる手の探索深さを返します。seldepthを使うときは、必ずその前でdepthを使って基本深さを示す必要があります。基本深さが５で、選択的に読んだ手の深さが８であれば、</p>
+<p style="margin-left: 80px;">depth 5 seldepth 8</p>
+<p style="margin-left: 80px;">というように続けて書くことになります。</p>
+<p style="margin-left: 40px;">time &lt;x&gt;</p>
+<p style="margin-left: 80px;">思考を開始してから経過した時間を返します（単位はミリ秒）。これはpvと一緒に返す必要があります。</p>
+<p style="margin-left: 40px;">nodes &lt;x&gt;</p>
+<p style="margin-left: 80px;">思考開始から探索したノード数を返します。これは定期的に返す必要があります。</p>
+<p style="margin-left: 40px;">pv &lt;move1&gt; ... &lt;movei&gt;</p>
+<p style="margin-left: 80px;">現在の読み筋を返します。（pvというのは、principal
+    variationの略です。）pvのあと、指し手を続けて書くことになります。なお、pvを使う場合、infoのあとに書くサブコマンドの中で最後に書くようにして下さい。stringとの同時使用はできません。</p>
+<p style="margin-left: 40px;">score cp &lt;x&gt;<br>
+    score mate &lt;y&gt;</p>
+<p style="margin-left: 80px;">エンジンによる現在の評価値を返します。score cpで評価値を返す場合、歩１枚の価値を100とした値を返すことになります。（cpというのは、centi
+    pawnの略です。）この値は、エンジンの側から見た値となり、エンジンが有利ならプラス、エンジンが不利ならマイナスの値になります。エンジンが50点有利と判断しているならscore cp 50となります。<br>
+    エンジンが詰みを発見した場合は、score
+    mateによって詰み手数を返すことができます。詰み手数に入れる数字は、エンジンの勝ちならプラス、エンジンの負けならマイナスになります。エンジンが6手後に詰まされて負けると判断した場合はscore mate -6となります。<br>
+    ただし、「詰みを発見したが、手数がわからない」ということがあるかもしれません。（実は、サンプル用のエンジンであるLesserkaiが詰みを発見したときがこの状況になります。）こういう場合は、score mate + またはscore
+    mate - のように、数字を使わず、単に+または-の記号を使用するようにして下さい。（これはUSIの原案にはありませんが、将棋所で機能追加しています。）</p>
+<p style="margin-left: 80px;">lowerbound</p>
+<p style="margin-left: 80px;">評価値が下限値（実際にはその値を上回る可能性がある）の場合に返します。</p>
+<p style="margin-left: 80px;">upperbound</p>
+<p style="margin-left: 80px;">評価値が上限値（実際にはその値を下回る可能性がある）の場合に返します。</p>
+<p style="margin-left: 80px;">lowerboundとupperboundを使う場合は、score cp &lt;x&gt; lowerbound または score cp &lt;x&gt;
+    upperbound のように使って下さい。<br>
+    この場合、将棋所では、評価値の隣の欄に++または--（lowerboundなら++、upperboundなら--）を追加して表示します。（表示設定の「対局または検討で、後手の評価値を反転表示」にチェックしてから対局または検討をした場合、あるいは棋譜解析の場合には、後手番のエンジンの++または--は反転表示されます）
+</p>
+<p style="margin-left: 40px;">currmove &lt;move&gt;</p>
+<p style="margin-left: 80px;">現在思考中の手を返します。（思考開始局面から最初に指す手です。）</p>
+<p style="margin-left: 40px;">hashfull &lt;x&gt;</p>
+<p style="margin-left: 80px;">エンジンが現在使用しているハッシュの使用率を返します。単位はパーミル（全体を１０００とした値）になります。現在のハッシュ使用率が２０％であれば、hashfull 200となります。<br>
+    このコマンドは定期的に返す必要があります。</p>
+<p style="margin-left: 40px;">nps &lt;x&gt;</p>
+<p style="margin-left: 80px;">１秒あたりの探索局面数を返します。これは定期的に返す必要があります。</p>
+<p style="margin-left: 40px;">string &lt;str&gt;</p>
+<p style="margin-left: 80px;">
+    GUIに表示させたい任意の文字列を返します。GUIはstringサブコマンド以降の文字列を全てそのまま表示します。将棋所の場合、この文字列は「読み筋」の欄に表示します。そのためpvと同時使用はできません。</p>
+<p style="margin-left: 40px;">
+    これらのサブコマンドは次の例のように１行に並べて書くことができます。実際の使い方としては、pvを返すときに、time、depth、nodes、scoreなどをまとめて返すとよいでしょう。<br>
+    また、定期的に返す必要のある、nodes、nps、hashfullなどもまとめて返すとよいと思います。（定期的に返す場合、あまり頻繁だと無駄なので、少なくとも１秒は間隔をおくようにして下さい。）</p>
+<p style="margin-left: 40px;">info time 1141 depth 3 nodes 135125 score cp -1521 pv 3a3b L*4h 4c4d<br>
+    info nodes 120000 nps 116391 hashfull 104<br>
+    info string 7g7f (70%)</p>
+<p>option</p>
+<p style="margin-left: 40px;">
+    エンジン固有の設定値を送ります。このコマンドは、GUIからusiが送られてきたあと、idとusiokを送り返す間に送ることになります。GUIはこれによって送られた内容を読み取り、エンジン設定ダイアログで表示することができます。エンジン設定ダイアログでOKを押すと、設定した内容をsetoptionコマンドでエンジンに送ることになります。optionコマンドは以下の書式になります。</p>
+<p style="margin-left: 40px;">option name &lt;optionname&gt; type &lt;optiontype&gt; &lt;parameter...&gt;</p>
+<p style="margin-left: 80px;">optionnameにオプション名を入れ、optiontypeにオプションの種類を入れます。optionnameにはスペースを入れてはいけません。</p>
+<p style="margin-left: 40px;">
+    オプション名については、USIによって予約されているものがいくつかあります。そのうち、USI_HashとUSI_Ponderについては、将棋所で対局を開始するときに必ずsetoptionコマンドで値を送るようにしているので、エンジン側で独自に値を保存する必要はありません。この２つのオプションについて解説します。</p>
+<p style="margin-left: 40px;">&lt;id&gt; = USI_Hash, type spin</p>
+<p style="margin-left: 80px;">エンジンのハッシュメモリの量を指定します。単位はMBになります。</p>
+<p style="margin-left: 40px;">&lt;id&gt; = USI_Ponder, type check </p>
+<p style="margin-left: 80px;">エンジンが先読み機能を使用できるかどうか指定します。これでfalseを指定すると、エンジンは先読み機能を使うことはできません。</p>
+<p style="margin-left: 40px;">
+    なお、将棋所で対局開始時にこの２つを必ず指定しているのは、この２つは使用頻度が高く、値の変更も頻繁に行われると思われるので、いちいちエンジン設定ダイアログを開かなくても設定できるようにしたためです。<br>
+    USIの原案では、これ以外にも、USI_OwnBook、USI_MultiPV、USI_ShowCurrLine、USI_ShowRefutations、USI_LimitStrength、USI_Strength、USI_AnalyseModeという名前のオプションが予約されています。（詳しくは原案を読んで下さい。）<br>
+    ただし、将棋所では、これらのオプションを設定することはありません。</p>
+<p style="margin-left: 40px;">オプションの種類は以下の６種類があります。このオプションの種類により、エンジン設定ダイアログで表示されるコントロールの型が決まります。</p>
+<p style="margin-left: 40px;">check</p>
+<p style="margin-left: 80px;">チェックボックスを表示します。</p>
+<p style="margin-left: 40px;">spin</p>
+<p style="margin-left: 80px;">数値のみを入力できるコントロールを表示します。</p>
+<p style="margin-left: 40px;">combo</p>
+<p style="margin-left: 80px;">ポップアップメニューを表示します。</p>
+<p style="margin-left: 40px;">button</p>
+<p style="margin-left: 80px;">ボタンを表示します。このボタンを押すと、オプション名で指定されたコマンドがエンジンに送られます。（オプション名がoptionnameなら、このボタンを押すと、setoption
+    name optionnameというコマンドが送られます。）</p>
+<p style="margin-left: 40px;">string</p>
+<p style="margin-left: 80px;">文字列を入力できるコントロールを表示します。</p>
+<p style="margin-left: 40px;">filename</p>
+<p style="margin-left: 80px;">
+    ファイル名を入力できるコントロールを表示します。ファイル名を指定しやすいよう、ファイル選択ボタンを表示し、それを押すと、ファイル選択のダイアログを表示するようになっています。ここで選択したファイルの絶対パスが設定値となります。</p>
+<p style="margin-left: 40px;">これらの種類を指定した後、そのデフォルト値や、入力値の範囲などを指定することができます。</p>
+<p style="margin-left: 40px;">default &lt;x&gt;</p>
+<p style="margin-left: 80px;">
+    デフォルト値を指定します。種類がcheckであれば、trueまたはfalseとなります。種類がspinであれば数字、combo、string、filenameであれば、任意の文字列になります。<br>
+    なお、stringまたはfilenameでデフォルト値が空の文字列の場合は&lt;empty&gt;を指定して下さい。（emptyの両側に不等号の記号が必要です。）</p>
+<p style="margin-left: 40px;">min &lt;x&gt;<br>
+    max &lt;x&gt;</p>
+<p style="margin-left: 80px;">種類がspinである場合、その値の下限値と上限値を指定します。</p>
+<p style="margin-left: 40px;">var &lt;x1&gt; var &lt;x2&gt; ...</p>
+<p style="margin-left: 80px;">種類がcomboの場合、選択できる文字列を追加します。</p>
+<p style="margin-left: 40px;">以下に、optionコマンドの使用例を示します。</p>
+<p style="margin-left: 40px;">// オプション名がUseBook、種類がcheck、デフォルト値がtrueであれば<br>
+    option name UseBook type check default true</p>
+<p style="margin-left: 40px;">// オプション名がSelectivity、種類がspin、デフォルト値が２で、選択可能な値が０から４までなら<br>
+    option name Selectivity type spin default 2 min 0 max 4</p>
+<p style="margin-left: 40px;">// オプション名がStyle、種類がcombo、デフォルト値がNormalで、選択可能な文字列がSolid、Normal、Riskyの３つであるなら<br>
+    option name Style type combo default Normal var Solid var Normal var Risky</p>
+<p style="margin-left: 40px;">// オプション名がResetLearning、種類がbuttonなら<br>
+    option name ResetLearning type button</p>
+<p style="margin-left: 40px;">// オプション名がBookFile、種類がstring、デフォルト値がpublic.binなら<br>
+    option name BookFile type string default public.bin</p>
+<p style="margin-left: 40px;">// オプション名がLearningFile、種類がfiliename、デフォルト値が空なら<br>
+    option name LearningFile type filename default &lt;empty&gt;</p>
+<p>checkmate [&lt;move1&gt; ... &lt;movei&gt; | notimplemented | timeout | nomate]</p>
+<p style="margin-left: 40px;">checkmateというコマンドはUSIの原案にはありませんが、GUIからgo
+    mateを送られて詰将棋解答を開始したあと、その結果を返すためのコマンドとして追加しました。checkmateのオプションは以下の通りになります。</p>
+<p style="margin-left: 40px;">notimplemented</p>
+<p style="margin-left: 80px;">詰将棋解答機能に対応していないエンジンの場合、go mateに対しては<br>
+    checkmate notimplementedを返します。</p>
+<p style="margin-left: 40px;">timeout</p>
+<p style="margin-left: 80px;">制限時間ありで詰将棋解答を開始した場合、制限時間内に結論が出なければ、<br>
+    checkmate timeoutを返します。</p>
+<p style="margin-left: 40px;">nomate</p>
+<p style="margin-left: 80px;">詰将棋を解いて、「この問題は詰まない」という結論が出たら、<br>
+    checkmate nomateを返します。</p>
+<p style="margin-left: 40px;">詰将棋を解いて、その問題が詰むのであれば、その手順をcheckmateのあとに続けて書きます。例えば、</p>
+<p style="margin-left: 40px;">checkmate G*8f 9f9g 8f8g 9g9h 8g8h</p>
+<p style="margin-left: 40px;">というようになります。詰将棋解答時の全体の流れについては、後述する「<a
+        href="https://web.archive.org/web/20170616170310/http://www.geocities.jp/shogidokoro/usi.html#ProblemExample">詰将棋解答における通信の具体例</a>」の項目を参考にして下さい。
+</p>
+<p style="margin-left: 40px;">なお、「詰将棋解答機能だけに対応して、通常の対局に対応していない」というエンジンを作った場合は、（go mateでない）通常のgoコマンドに対してはbestmove
+    resignを返すようにしておいて下さい。間違ってそのエンジンで対局を開始してもすぐに対局が終わるので、そのエンジンでは対局できないことがわかります。</p>
+<h4>
+    <hr align="left" size="3" width="100%">
+</h4>
+<h4><a name="GameExample">対局における通信の具体例</a></h4>
+<p>以下に、実際の通信の具体例を示します。特に、思考開始と指し手について解説します。なお、GUIがエンジンに対して送るコマンドの前には"&gt;"を、エンジンがGUIに対して送るコマンドの前には"&lt;"をつけています。</p>
+<h4>エンジン起動から対局開始まで</h4>
+<p>// エンジン起動<br>
+    &gt;usi</p>
+<p>// usiコマンドに対する返答（例）<br>
+    &lt;id name Lesserkai<br>
+    &lt;id authoer Program Writer<br>
+    &lt;option name BookFile type string default public.bin<br>
+    &lt;option name UseBook type check default true<br>
+    &lt;usiok</p>
+<p>// 対局開始前のオプション設定（例）<br>
+    &gt;setoption name USI_Ponder value true<br>
+    &gt;setoption name USI_Hash value 32<br>
+    &gt;setoption name BookFile value public.bin<br>
+    &gt;setoption name UseBook value true<br>
+    <br>
+    // 対局開始前の準備<br>
+    &gt;isready<br>
+    &lt;readyok<br>
+    <br>
+    // 対局開始<br>
+    &gt;usinewgame</p>
+<h4>指し手のやり取り</h4>
+<p>最も重要な部分である、指し手の部分について説明します。（なお、以下の例で、goコマンドのオプションである持ち時間指定部分は省略しています。）<br>
+    まず、GUIはエンジンに対し、positionコマンドで現在局面を送り、それに続けてgoコマンドを送って思考開始を命令します。エンジンが後手で、先手が平手初期局面から７七歩と指した局面であれば、<br>
+    <br>
+    &gt;position startpos moves 7g7f<br>
+    &gt;go</p>
+<p>それに対しエンジンは、思考したあと、bestmoveコマンドで指し手を返します。先読みしないのであれば、エンジンの指し手だけを返します。</p>
+<p>&lt;bestmove 3c3d</p>
+<p>なおエンジンは、goを受信してからbestmoveを返すまでの間に、infoコマンドで思考内容を送ってGUIに表示させることができます。（この例では省略しています。）</p>
+<p>次に、先読み機能を説明します。<br>
+    エンジンが後手で、先手が平手初期局面から１六歩と指した局面であれば</p>
+<p>&gt;position startpos moves 1g1f<br>
+    &gt;go</p>
+<p>エンジンはbestmoveコマンドで指し手を返しますが、この時に先読み要求を出すことができます。エンジンの指し手が4a3bで、それに対する相手の指し手を6i7hと予想したのであれば</p>
+<p>&lt;bestmove 4a3b ponder 6i7h</p>
+<p>GUIはこれを受信すると、すぐにpositionコマンドで思考開始局面を送ります。この局面は、現在局面に、エンジンが予想した相手の指し手（この場合は6i7h）を追加したものになります。それに続けてgo
+    ponderコマンドを送ります。</p>
+<p>&gt;position startpos moves 1g1f 4a3b 6i7h<br>
+    &gt;go ponder</p>
+<p>エンジンはこれを受信すると先読みを開始します。goコマンドの解説にも書きましたが、go
+    ponderによって先読みを開始した場合、次にGUIからstopまたはponderhitが送られてくるまで、エンジンはbestmoveを返してはいけません。相手が次の手を指す前に思考が終わったとしても、GUIからstopまたはponderhitが送られてくるまで待つことになります。</p>
+<p>やがて、相手が手を指します。その手がエンジンの予想手と一致した場合と、そうでない場合で動作が異なります。</p>
+<h5>エンジンの予想手が外れた場合</h5>
+<p>この場合、GUIはエンジンにstopを送ります。</p>
+<p>&gt;stop</p>
+<p>
+    エンジンはこれに対し、思考中ならすぐに思考を打ち切って、現時点で最善と考えている手をbestmoveで返します。既に思考が終わっていたなら、探索済みの指し手をbestmoveで返します。（bestmoveのあとにponderで相手の予想手を追加しても構いませんが、いずれにしろ無視されます。）</p>
+<p>&lt;bestmove 6a5b ponder 4i5h</p>
+<p>
+    この、stopに対してbestmoveで返された指し手は、外れた予想手（この場合は6i7h）に対する指し手なので、GUIはこの内容を無視して、正しい相手の指し手（現在局面）を送ります。続けてgoコマンドも送ります。相手が7g7fと指したのであれば</p>
+<p>&gt;position startpos moves 1g1f 4a3b 7g7f<br>
+    &gt;go</p>
+<p>エンジンはこれによって通常の思考を開始します。</p>
+<h5>エンジンの予想手が当たった場合</h5>
+<p>この場合、GUIはエンジンにponderhitを送ります。</p>
+<p>&gt;ponderhit</p>
+<p>
+    予想手が当たったので、エンジンは引き続き思考を継続して構いません。既に思考が終わっていたら、すぐにその指し手を返すこともできます。bestmoveで指し手を返すとき、前回と同様にponderを追加して先読み要求を出すこともできます。</p>
+<p>&lt;bestmove 6a5b ponder 4i5h</p>
+<p>以下、同様にして対局が継続されます。</p>
+<h4>対局終了</h4>
+<p>エンジンは、自分の指し手のとき、bestmove resignを送ることで投了することができます。また、相手の指し手によって詰まされてしまった場合は、必ずbestmove resignを返すようにしてください。</p>
+<p>&lt;bestmove resign</p>
+<p>対局終了を確認すると、GUIはエンジンにgameoverコマンドを送ります。エンジンが勝った場合はgameover win、負けた場合はgameover loseを送ります。千日手が発生した場合は、gameover
+    drawを送ります。</p>
+<p>&gt;gameover lose</p>
+<p>エンジンはこれで対局状態を終了し、次の対局待ち状態になります。</p>
+<hr align="left" size="3" width="100%">
+<h4><a name="ProblemExample">詰将棋解答における通信の具体例</a></h4>
+<p>
+    詰将棋解答についても、全体の流れとしては対局時とほとんど同じです。エンジン起動から解答準備に入るまでのコマンドのやり取りは、USI_Ponderの設定をしないことを除けば、通常の対局時と同じです。（対局ではないので、usinewgameとか不要に思われるかもしれませんが、対局時と同じような流れにした方がエンジンの詰将棋対応をやりやすいと思ったので、あえて同じようにしてあります。）</p>
+<p>// エンジン起動<br>
+    &gt;usi</p>
+<p>// usiコマンドに対する返答（例）<br>
+    &lt;id name Lesserkai<br>
+    &lt;id authoer Program Writer<br>
+    &lt;option name BookFile type string default public.bin<br>
+    &lt;option name UseBook type check default true<br>
+    &lt;usiok</p>
+<p>// 詰将棋解答開始前のオプション設定（例）<br>
+    &gt;setoption name USI_Hash value 32<br>
+    &gt;setoption name BookFile value public.bin<br>
+    &gt;setoption name UseBook value true<br>
+    <br>
+    // 詰将棋解答開始前の準備<br>
+    &gt;isready<br>
+    &lt;readyok<br>
+    <br>
+    // 詰将棋解答開始<br>
+    &gt;usinewgame</p>
+<h4>問題と解答のやり取り</h4>
+<p>
+    次にGUIは問題局面を送って詰将棋解答の開始をエンジンに命令し、エンジンは解答を返します。この部分のやり取りも通常の対局時と似ています。通常の対局時にはGUIがgoを送ってエンジンが思考を開始し、エンジンはbestmoveで指し手を返しますが、詰将棋解答時はgoの代わりにgo
+    mateを送ってエンジンが思考を開始し、エンジンはbestmoveの代わりにcheckmateを返す、ということになります。</p>
+<p>まずGUIはpositionで問題の局面を送ります。例えば、</p>
+<p>&gt;position sfen 9/9/9/9/9/k8/9/9/1R2K4 b Gr2b3g4s4n4l18p 1</p>
+<p>positionに続けてgo mateコマンドを送ります。時間無制限で解かせるのなら、</p>
+<p>&gt;go mate infinite</p>
+<p>これでエンジンは思考を開始し、checkmateコマンドを返します。</p>
+<p>&lt;checkmate G*8f 9f9g 8f8g 9g9h 8g8h</p>
+<p>なお、go mateを受信してからcheckmateを返すまでの間、エンジンはinfoコマンドを使って思考内容を返すことができます。</p>
+<p>エンジンはcheckmateを返したら次の問題待ちになります。そして、またpositionとgo mateが送られてきたら、次の問題の解答を開始することになります。</p>
+<hr align="left" size="3" width="100%">
+<h4>USIに追加されたコマンド</h4>
+<p>既に説明しましたが、USIの原案にないコマンドで、USIに新しく追加されたコマンドなどについてまとめます。</p>
+<p>GUIからエンジンに送るコマンド</p>
+<p style="margin-left: 40px;">gameover<br>
+    goのオプションとしてbyoyomi<br>
+    また、追加ではありませんが、go mateのパラメータを原案から変更しています。</p>
+<p>エンジンからGUIに送るコマンド</p>
+<p style="margin-left: 40px;">bestmoveのパラメータとしてresignとwin<br>
+    checkmate</p>
+<h4>USIの原案のうち、未対応のコマンド</h4>
+<p>将棋所では、USIの原案にあるコマンドのうち、次のコマンドなどに未対応です。今後の対応も未定です。</p>
+<p>GUIからエンジンに送るコマンド</p>
+<p style="margin-left: 40px;">debug<br>
+    register<br>
+    goのオプションのうち、searchmoves, movestogo, depth, nodes, movetime</p>
+<p>エンジンからGUIに送るコマンド</p>
+<p style="margin-left: 40px;">registration<br>
+    infoのサブコマンドのうち、multipv, currmovenumber, cpuload, refutation, currline</p>
+<hr align="left" size="3" width="100%">
+<p><a href="https://web.archive.org/web/20170616170310/http://www.geocities.jp/shogidokoro/index.html">ホーム</a>＞USIプロトコルとは
+</p>
+
+</body></html>
